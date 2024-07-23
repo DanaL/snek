@@ -426,6 +426,17 @@ void update(struct snek *snek)
   free(t);
 }
 
+bool in_bounds(struct snek *snek) 
+{
+  if (snek->head->row == 0 || snek->head->col == 0)
+    return false;
+
+  if (snek->head->row == MIN_WIN_HEIGHT || snek->head->col == MIN_WIN_WIDTH)
+    return false;
+
+  return true;
+}
+
 int main(void)
 {
   if (!valid_window_size())
@@ -461,11 +472,9 @@ int main(void)
     update(snek);
     render(snek);
 
-    if (snek->head->col >= MIN_WIN_WIDTH)
-      break;
-    if (snek->head->row == 0)
+    if (!in_bounds(snek))
       break;
 
-    usleep(75000);
+    usleep(100000);
   }
 }
