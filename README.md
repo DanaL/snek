@@ -1,0 +1,1 @@
+I am teaching myself C and I feel like a classic project is to implement a clone of Snake. I'm doing mine in raw terminal mode. I'm developing on macOS but I expect it'll compile and run on Linux, albeit probably not Windows.
