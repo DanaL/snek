@@ -22,6 +22,8 @@
 
 #define VERSION "0.0.1"
 
+#define INIT_SKEN_LEN 8
+
 #define EMPTY 0
 #define SNEK_HEAD 1
 #define SNEK_BODY 2
@@ -32,6 +34,9 @@
 #define SOUTH 1
 #define EAST 2
 #define WEST 3
+
+#define LEFT 0
+#define RIGHT 1
 
 #define MIN_WIN_HEIGHT 30
 #define MIN_WIN_WIDTH 100
@@ -46,7 +51,7 @@
 void clear_screen(void);
 void exit_raw_mode(void);
 void hide_cursor(void);
-char update(void);
+char get_key(void);
 
 // data structures for storing the snek and game state
 struct pt {
@@ -78,7 +83,7 @@ struct snek *snek_init(void)
   snek->head->next = NULL;
 
   struct pt *p = snek->head;
-  for (int j = 0; j < 4; j++) {
+  for (int j = 0; j < INIT_SKEN_LEN; j++) {
     struct pt *segment = malloc(sizeof(struct pt));
     segment->row = init_row;
     segment->col = p->col - 1;
@@ -180,7 +185,7 @@ void title_screen(void)
   free(blank);
 
   while (true) {
-    char c = update();
+    char c = get_key();
     if (c == 'q') {
       exit(0);
     }
@@ -248,7 +253,7 @@ void enter_raw_mode(void)
 
   // Set a timeout on read() so that we can have an actual game loop
   raw.c_cc[VMIN] = 0;
-  raw.c_cc[VTIME] = 1;
+  //raw.c_cc[VTIME] = 1;
 
   if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1)
     die("tcsetattr");
@@ -273,7 +278,7 @@ bool valid_window_size()
 
 // terminal i/o stuff
 
-char update(void)
+char get_key(void)
 {
   char c = '\0';
   if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) die("read");
@@ -303,6 +308,20 @@ void fg_colour(char *buf, size_t *pos, int colour)
 
   memcpy(&buf[*pos], s, strlen(s));
   *pos += strlen(s);
+}
+
+char snek_head(uint32_t dir)
+{
+  switch (dir) {
+    case NORTH:
+      return '^';
+    case SOUTH:
+      return 'v';
+    case EAST:
+      return '>';
+    default:
+      return '<';
+  }
 }
 
 void render(struct snek *snek)
@@ -350,7 +369,7 @@ void render(struct snek *snek)
           break;
         case SNEK_HEAD:
           fg_colour(buffer, &pos, GREEN);
-          buffer[pos++] = '>';
+          buffer[pos++] = snek_head(snek->dir);
           break;
       }
     }
@@ -375,6 +394,38 @@ void render(struct snek *snek)
   free(table);
 }
 
+void update(struct snek *snek)
+{
+  int dr = 0, dc = 0;
+  switch (snek->dir) {
+    case NORTH:
+      dr = -1;
+      break;
+    case SOUTH:
+      dr = 1;
+      break;
+    case EAST:
+      dc = 1;
+      break;
+    case WEST:
+      dc = -1;
+      break;
+  }
+
+  struct pt *n = malloc(sizeof(struct pt));
+  n->row = snek->head->row + dr;
+  n->col = snek->head->col + dc;
+  n->next = NULL;
+  n->prev = snek->head;
+  snek->head->next = n;
+  snek->head = n;
+
+  struct pt *t = snek->tail;
+  snek->tail = snek->tail->next;
+  snek->tail->prev = NULL;
+  free(t);
+}
+
 int main(void)
 {
   if (!valid_window_size())
@@ -394,9 +445,27 @@ int main(void)
 
   // main game loop
   while (true) {
-    char c = update();
-    //write(STDOUT_FILENO, "hello.", 6);
+    char c = get_key();
     
-   render(snek);
+    if (c == 'q')
+      break;
+    else if (c == 'w') 
+      snek->dir = NORTH;
+    else if (c == 'a')
+      snek->dir = WEST;
+    else if (c == 's')
+      snek->dir = SOUTH;
+    else if (c == 'd')
+      snek->dir = EAST;
+    
+    update(snek);
+    render(snek);
+
+    if (snek->head->col >= MIN_WIN_WIDTH)
+      break;
+    if (snek->head->row == 0)
+      break;
+
+    usleep(75000);
   }
 }
