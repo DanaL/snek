@@ -22,14 +22,88 @@
 
 #define VERSION "0.0.1"
 
+#define EMPTY 0
+#define SNEK_HEAD 1
+#define SNEK_BODY 2
+#define MUSHROOM 3
+#define SNEK_SNACK 4
+
+#define NORTH 0
+#define SOUTH 1
+#define EAST 2
+#define WEST 3
+
 #define MIN_WIN_HEIGHT 30
 #define MIN_WIN_WIDTH 100
 
 #define CTRL_KEY(k) ((k) & 0x1f)
 
+#define GREEN 28
+#define PURPLE 99
+#define BLUE 33
+
 // prototypes
 void clear_screen(void);
+void exit_raw_mode(void);
 void hide_cursor(void);
+char update(void);
+
+// data structures for storing the snek and game state
+struct pt {
+  uint32_t row;
+  uint32_t col;
+  struct pt *next;
+  struct pt *prev;
+};
+
+struct snek {
+  struct pt *head;
+  struct pt *tail;
+  uint32_t dir;
+};
+
+struct snek *snek_init(void)
+{
+  struct snek *snek = malloc(sizeof(struct snek));
+  snek->dir = EAST;
+
+  // Create an initial snek that's roughly in the centre of the screen
+  // and five segments long.
+  uint32_t init_row = MIN_WIN_HEIGHT / 2;
+  uint32_t init_col = MIN_WIN_WIDTH / 2 + 2;
+
+  snek->head = malloc(sizeof(struct pt));
+  snek->head->row = init_row;
+  snek->head->col = init_col;
+  snek->head->next = NULL;
+
+  struct pt *p = snek->head;
+  for (int j = 0; j < 4; j++) {
+    struct pt *segment = malloc(sizeof(struct pt));
+    segment->row = init_row;
+    segment->col = p->col - 1;
+    p->prev = segment;
+    segment->next = p;
+    segment->prev = NULL;
+    p = segment;
+  }
+
+  snek->tail = p;
+
+  return snek;
+}
+
+void snek_destroy(struct snek *snek)
+{
+  struct pt *p = snek->head;
+  while (p) {
+    struct pt *seg = p;
+    p = p->prev;
+    free(seg);
+  }
+
+  free(snek);
+}
 
 // Configure the terminal for raw input/output, turn off key echoing, etc.
 
@@ -50,8 +124,6 @@ void title_screen(void)
   char *blank = malloc(MIN_WIN_WIDTH - 1);
   memset(blank, ' ', MIN_WIN_WIDTH - 2);
   blank[MIN_WIN_WIDTH - 2] = '\0';
-
-  hide_cursor();
 
   write(STDOUT_FILENO, "\x1b[47m", 5);
   write(STDOUT_FILENO, border, MIN_WIN_WIDTH);
@@ -106,6 +178,16 @@ void title_screen(void)
 
   free(border);
   free(blank);
+
+  while (true) {
+    char c = update();
+    if (c == 'q') {
+      exit(0);
+    }
+    else if (c == ' ') {
+     break;
+    }
+  }
 }
 
 void die(const char *s)
@@ -139,6 +221,9 @@ void exit_raw_mode(void)
   if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios) == -1)
     die("tcsetattr");
   show_cursor();
+
+  // just in case, switch back to default fg colour
+  write(STDOUT_FILENO, "\x1b[39m", 5);
 }
 
 void enter_raw_mode(void)
@@ -199,9 +284,95 @@ char update(void)
   return c;
 }
 
-void render(void)
+void invert(char *buf, size_t *pos)
 {
+  memcpy(&buf[*pos], "\x1b[47m", 5);
+  *pos += 5;
+}
+
+void uninvert(char *buf, size_t *pos)
+{
+  memcpy(&buf[*pos], "\x1b[m", 3);
+  *pos += 3;
+}
+
+void fg_colour(char *buf, size_t *pos, int colour)
+{
+  char s[15];
+  sprintf(s, "\x1b[38;5;%dm", colour);
+
+  memcpy(&buf[*pos], s, strlen(s));
+  *pos += strlen(s);
+}
+
+void render(struct snek *snek)
+{
+  // build table of things on screen
+  int *table = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
+  struct pt *p = snek->head;
+  int i = i = p->row * MIN_WIN_WIDTH + p->col;
+  table[i] = SNEK_HEAD;
+  p = p->prev;
+  while (p) {
+    int i = p->row * MIN_WIN_WIDTH + p->col;
+    table[i] = SNEK_BODY;
+    p = p->prev;
+  }
+
   clear_screen();
+  char buffer[MIN_WIN_HEIGHT * MIN_WIN_WIDTH * 2];
+  size_t pos = 0;
+
+  invert(buffer, &pos);
+
+  memset(&buffer[pos], ' ', MIN_WIN_WIDTH);
+  pos += MIN_WIN_WIDTH;
+
+  uninvert(buffer, &pos);
+
+  buffer[pos++] = '\r';
+  buffer[pos++] = '\n';
+  
+  for (size_t r = 1; r < MIN_WIN_HEIGHT - 1; r++) {
+    invert(buffer, &pos);
+    buffer[pos++] = ' ';
+    uninvert(buffer, &pos);
+    
+    for (size_t c = 1; c < MIN_WIN_WIDTH - 1; c++) {
+      int i = r * MIN_WIN_WIDTH + c;
+      switch (table[i]) {
+        case EMPTY:
+          buffer[pos++] = ' ';
+          break;
+        case SNEK_BODY:
+          fg_colour(buffer, &pos, GREEN);
+          buffer[pos++] = '#';
+          break;
+        case SNEK_HEAD:
+          fg_colour(buffer, &pos, GREEN);
+          buffer[pos++] = '>';
+          break;
+      }
+    }
+
+    invert(buffer, &pos);
+    buffer[pos++] = ' ';
+    uninvert(buffer, &pos);
+
+    buffer[pos++] = '\r';
+    buffer[pos++] = '\n';
+  }
+
+  invert(buffer, &pos);
+  memset(&buffer[pos], ' ', MIN_WIN_WIDTH);
+  pos += MIN_WIN_WIDTH;
+  uninvert(buffer, &pos);
+  buffer[pos++] = '\r';
+  buffer[pos++] = '\n';
+  
+  write(STDOUT_FILENO, buffer, pos);
+
+  free(table);
 }
 
 int main(void)
@@ -214,19 +385,18 @@ int main(void)
     return 1;
   }
 
+  struct snek *snek = snek_init();
+
   enter_raw_mode();
+  hide_cursor();
 
   title_screen();
 
   // main game loop
   while (true) {
-   char c = update();
-   if (c == ' ') {
-    exit_raw_mode();
-    printf("new game!\n");
-    break;
-   }
-
-   //render();
+    char c = update();
+    //write(STDOUT_FILENO, "hello.", 6);
+    
+   render(snek);
   }
 }
