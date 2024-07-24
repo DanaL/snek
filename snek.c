@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #define VERSION "0.0.1"
@@ -47,6 +48,8 @@
 #define PURPLE 99
 #define BLUE 33
 
+#define ACCELERATION 500
+
 // prototypes
 void clear_screen(void);
 void exit_raw_mode(void);
@@ -54,6 +57,13 @@ void hide_cursor(void);
 char get_key(void);
 
 // data structures for storing the snek and game state
+
+struct game_state {
+  uint32_t score;
+  uint32_t acceleration;
+  int *items;
+};
+
 struct pt {
   uint32_t row;
   uint32_t col;
@@ -96,6 +106,21 @@ struct snek *snek_init(void)
   snek->tail = p;
 
   return snek;
+}
+
+void items_init(struct game_state *gs, struct snek *snek)
+{
+  int count = 20;
+  while (count > 0) {
+    int row = rand() % (MIN_WIN_HEIGHT - 2) + 1;
+    int col = rand() % (MIN_WIN_WIDTH - 2) + 1;
+
+    if (row == snek->head->row && col == snek->head->col)
+      continue;
+
+    gs->items[row * MIN_WIN_WIDTH + col] = SNEK_SNACK;
+    --count;
+  }
 }
 
 void snek_destroy(struct snek *snek)
@@ -338,10 +363,15 @@ char snek_head(uint32_t dir)
   }
 }
 
-void render(struct snek *snek)
+void render(struct snek *snek, struct game_state *gs)
 {
   // build table of things on screen
   int *table = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
+  for (int j = 0; j < MIN_WIN_HEIGHT * MIN_WIN_WIDTH; j++) {
+    if (gs->items[j] == SNEK_SNACK)
+      table[j] = SNEK_SNACK;
+  }
+
   struct pt *p = snek->head;
   int i = i = p->row * MIN_WIN_WIDTH + p->col;
   table[i] = SNEK_HEAD;
@@ -384,6 +414,10 @@ void render(struct snek *snek)
         case SNEK_HEAD:
           fg_colour(buffer, &pos, GREEN);
           buffer[pos++] = snek_head(snek->dir);
+          break;
+        case SNEK_SNACK:
+          fg_colour(buffer, &pos, BLUE);
+          buffer[pos++] = 'o';
           break;
       }
     }
@@ -461,6 +495,10 @@ int main(void)
     return 1;
   }
 
+  srand(time(NULL));
+
+  uint32_t high_score = 0;
+  struct game_state gs = { .score = 0, .items = NULL };
   struct snek *snek = snek_init();
 
   enter_raw_mode();
@@ -469,6 +507,10 @@ int main(void)
   title_screen();
 
   // main game loop
+  free(gs.items);
+  gs.items = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
+  items_init(&gs, snek);
+
   while (true) {
     char c = get_key();
     
@@ -484,11 +526,13 @@ int main(void)
       snek->dir = EAST;
     
     update(snek);
-    render(snek);
+    render(snek, &gs);
 
     if (!in_bounds(snek))
       break;
 
     usleep(100000);
   }
+
+  free(gs.items);
 }
