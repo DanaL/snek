@@ -21,7 +21,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define VERSION "0.0.1"
+#define VERSION "0.1.0"
 
 #define INIT_SKEN_LEN 8
 
@@ -179,8 +179,32 @@ void title_screen(void)
       for (size_t j = padding + len + 1; j < MIN_WIN_WIDTH - 1; j++)
         write(STDOUT_FILENO, " ", 1);
     }
+    else if (r == MIN_WIN_HEIGHT / 3 + 5) {
+      char *msg = "press space to begin...";
+      size_t len = strlen(msg);
+      size_t padding = (MIN_WIN_WIDTH - 2 - len) / 2;
+      for (size_t j = 0; j < padding; j++)
+         write(STDOUT_FILENO, " ", 1);
+
+      write(STDOUT_FILENO, msg, len);
+
+      for (size_t j = padding + len + 1; j < MIN_WIN_WIDTH - 1; j++)
+        write(STDOUT_FILENO, " ", 1);
+    }
     else if (r == MIN_WIN_HEIGHT / 3 + 2) {
-      char *msg = "press space to begin";
+      char *msg = "Eat snek snacks! Grow!";
+      size_t len = strlen(msg);
+      size_t padding = (MIN_WIN_WIDTH - 2 - len) / 2;
+      for (size_t j = 0; j < padding; j++)
+         write(STDOUT_FILENO, " ", 1);
+
+      write(STDOUT_FILENO, msg, len);
+
+      for (size_t j = padding + len + 1; j < MIN_WIN_WIDTH - 1; j++)
+        write(STDOUT_FILENO, " ", 1);
+    }
+    else if (r == MIN_WIN_HEIGHT / 3 + 3) {
+      char *msg = "Avoid an ouroboros situation!";
       size_t len = strlen(msg);
       size_t padding = (MIN_WIN_WIDTH - 2 - len) / 2;
       for (size_t j = 0; j < padding; j++)
@@ -364,8 +388,12 @@ char snek_head(uint32_t dir)
   }
 }
 
-void render(struct snek *snek, struct game_state *gs)
+void render(struct snek *snek, struct game_state *gs, char *msg)
 {
+  // col to roughly centre msg 
+  size_t msg_len = msg != NULL ? strlen(msg) : 0;
+  int msg_col = msg != NULL ? (MIN_WIN_WIDTH - 2 - msg_len) / 2 : 0;
+
   // build table of things on screen
   int *table = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
   for (int j = 0; j < MIN_WIN_HEIGHT * MIN_WIN_WIDTH; j++) {
@@ -417,6 +445,13 @@ void render(struct snek *snek, struct game_state *gs)
     uninvert(buffer, &pos);
     
     for (size_t c = 1; c < MIN_WIN_WIDTH - 1; c++) {
+
+      if (msg && r == MIN_WIN_HEIGHT / 3 && c >= msg_col && c < msg_col + msg_len) {
+        fg_colour(buffer, &pos, PURPLE);
+        buffer[pos++] = msg[c - msg_col];
+        continue;
+      }
+
       int i = r * MIN_WIN_WIDTH + c;
       switch (table[i]) {
         case EMPTY:
@@ -491,7 +526,7 @@ bool update(struct snek *snek, struct game_state *gs)
   size_t i = snek->head->row * MIN_WIN_WIDTH + snek->head->col;
   if (gs->items[i] == SNEK_SNACK) {
     gs->score += 10;
-    gs->speed -= 100;
+    gs->speed -= 1000;
     gs->items[i] = EMPTY;
 
     // grow the snek by three segments
@@ -510,12 +545,12 @@ bool update(struct snek *snek, struct game_state *gs)
   struct pt *seg = snek->head->prev;
   while (seg) {
     if (seg->row == snek->head->row && seg->col == snek->head->col) {
-      return false;
+      return true;
     }
 
     seg = seg->prev;
   }
-  return true;
+  return false;
 }
 
 bool in_bounds(struct snek *snek) 
@@ -555,6 +590,7 @@ int main(void)
   gs.items = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
   items_init(&gs, snek);
 
+  bool game_over = false;
   while (true) {
     char c = get_key();
     
@@ -568,14 +604,17 @@ int main(void)
       snek->dir = SOUTH;
     else if (c == 'd')
       snek->dir = EAST;
-    
-    if (!update(snek, &gs))
-      break;
-      
-    render(snek, &gs);
 
+    game_over = update(snek, &gs);
     if (!in_bounds(snek))
+      game_over = true;
+
+    if (game_over) {
+      render(snek, &gs, "Oh noes! Game over :(");
       break;
+    }
+
+    render(snek, &gs, NULL);
 
     usleep(gs.speed);
   }
