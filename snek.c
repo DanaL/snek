@@ -489,12 +489,23 @@ void update(struct snek *snek, struct game_state *gs)
   free(t);
 
   // This is probably where I should be checking to see if the snek has
-  // hit a wall or itself instead of render.
+  // hit a wall or itself instead of in render.
   size_t i = snek->head->row * MIN_WIN_WIDTH + snek->head->col;
   if (gs->items[i] == SNEK_SNACK) {
     gs->score += 10;
     gs->speed -= 100;
     gs->items[i] = EMPTY;
+
+    // grow the snek by three segments
+    for (int j = 0; j < 3; j++) {
+      struct pt *new_seg = malloc(sizeof(struct pt));
+      new_seg->row = snek->tail->row;
+      new_seg->col = snek->tail->col;
+      new_seg->prev = NULL;
+      new_seg->next = snek->tail;
+      snek->tail->prev = new_seg;
+      snek->tail = new_seg;
+    }
   }
 }
 
