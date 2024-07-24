@@ -63,6 +63,8 @@ struct game_state {
   uint32_t acceleration;
   int *items;
   useconds_t speed;
+  bool paused;
+  time_t snacks_refreshed;
 };
 
 struct pt {
@@ -109,9 +111,8 @@ struct snek *snek_init(void)
   return snek;
 }
 
-void items_init(struct game_state *gs, struct snek *snek)
+void add_snacks(struct game_state *gs, struct snek *snek, int count)
 {
-  int count = 20;
   while (count > 0) {
     int row = rand() % (MIN_WIN_HEIGHT - 2) + 1;
     int col = rand() % (MIN_WIN_WIDTH - 2) + 1;
@@ -577,7 +578,8 @@ int main(void)
   srand(time(NULL));
 
   uint32_t high_score = 0;
-  struct game_state gs = { .score = 0, .items = NULL, .speed = 100000 };
+  struct game_state gs = { .score = 0, .items = NULL, .speed = 100000,
+    .paused = false };
   struct snek *snek = snek_init();
 
   enter_raw_mode();
@@ -588,9 +590,11 @@ int main(void)
   // main game loop
   free(gs.items);
   gs.items = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
-  items_init(&gs, snek);
+  add_snacks(&gs, snek, 20);
 
   bool game_over = false;
+  gs.snacks_refreshed = time(NULL);
+  
   while (true) {
     char c = get_key();
     
@@ -604,19 +608,28 @@ int main(void)
       snek->dir = SOUTH;
     else if (c == 'd')
       snek->dir = EAST;
+		else if (c == ' ')
+	  	gs.paused = !gs.paused;
+	
+    if (!gs.paused) {
+      game_over = update(snek, &gs);
+      if (!in_bounds(snek))
+				game_over = true;
 
-    game_over = update(snek, &gs);
-    if (!in_bounds(snek))
-      game_over = true;
+      if (game_over) {
+				render(snek, &gs, "Oh noes! Game over :(");
+				break;
+      }
 
-    if (game_over) {
-      render(snek, &gs, "Oh noes! Game over :(");
-      break;
+			if (time(NULL) - gs.snacks_refreshed >= 10) {
+  			add_snacks(&gs, snek, 5);
+				gs.snacks_refreshed = time(NULL);
+			}
+
+      render(snek, &gs, NULL);
     }
 
-    render(snek, &gs, NULL);
-
-    usleep(gs.speed);
+  	usleep(gs.speed);
   }
 
   free(gs.items);
