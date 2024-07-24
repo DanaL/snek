@@ -457,7 +457,7 @@ void render(struct snek *snek, struct game_state *gs)
   free(table);
 }
 
-void update(struct snek *snek, struct game_state *gs)
+bool update(struct snek *snek, struct game_state *gs)
 {
   int dr = 0, dc = 0;
   switch (snek->dir) {
@@ -488,8 +488,6 @@ void update(struct snek *snek, struct game_state *gs)
   snek->tail->prev = NULL;
   free(t);
 
-  // This is probably where I should be checking to see if the snek has
-  // hit a wall or itself instead of in render.
   size_t i = snek->head->row * MIN_WIN_WIDTH + snek->head->col;
   if (gs->items[i] == SNEK_SNACK) {
     gs->score += 10;
@@ -507,6 +505,17 @@ void update(struct snek *snek, struct game_state *gs)
       snek->tail = new_seg;
     }
   }
+
+  // check if the snek has hit any part of its body
+  struct pt *seg = snek->head->prev;
+  while (seg) {
+    if (seg->row == snek->head->row && seg->col == snek->head->col) {
+      return false;
+    }
+
+    seg = seg->prev;
+  }
+  return true;
 }
 
 bool in_bounds(struct snek *snek) 
@@ -560,7 +569,9 @@ int main(void)
     else if (c == 'd')
       snek->dir = EAST;
     
-    update(snek, &gs);
+    if (!update(snek, &gs))
+      break;
+      
     render(snek, &gs);
 
     if (!in_bounds(snek))
