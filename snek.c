@@ -62,6 +62,7 @@ struct game_state {
   uint32_t score;
   uint32_t acceleration;
   int *items;
+  useconds_t speed;
 };
 
 struct pt {
@@ -386,10 +387,24 @@ void render(struct snek *snek, struct game_state *gs)
   char buffer[MIN_WIN_HEIGHT * MIN_WIN_WIDTH * 2];
   size_t pos = 0;
 
+  // draw top bar with score
   invert(buffer, &pos);
 
-  memset(&buffer[pos], ' ', MIN_WIN_WIDTH);
-  pos += MIN_WIN_WIDTH;
+  memset(&buffer[pos], ' ', 5);
+  pos += 5;
+
+  uninvert(buffer, &pos);
+
+  char score[20];
+  sprintf(score, " Score: %d ", gs->score);
+  size_t score_len = strlen(score);
+  memcpy(&buffer[pos], score, score_len);
+  pos += score_len;
+
+  invert(buffer, &pos);
+
+  memset(&buffer[pos], ' ', MIN_WIN_WIDTH - score_len - 5);
+  pos +=  MIN_WIN_WIDTH - score_len - 5;
 
   uninvert(buffer, &pos);
 
@@ -442,7 +457,7 @@ void render(struct snek *snek, struct game_state *gs)
   free(table);
 }
 
-void update(struct snek *snek)
+void update(struct snek *snek, struct game_state *gs)
 {
   int dr = 0, dc = 0;
   switch (snek->dir) {
@@ -472,6 +487,15 @@ void update(struct snek *snek)
   snek->tail = snek->tail->next;
   snek->tail->prev = NULL;
   free(t);
+
+  // This is probably where I should be checking to see if the snek has
+  // hit a wall or itself instead of render.
+  size_t i = snek->head->row * MIN_WIN_WIDTH + snek->head->col;
+  if (gs->items[i] == SNEK_SNACK) {
+    gs->score += 10;
+    gs->speed -= 100;
+    gs->items[i] = EMPTY;
+  }
 }
 
 bool in_bounds(struct snek *snek) 
@@ -498,7 +522,7 @@ int main(void)
   srand(time(NULL));
 
   uint32_t high_score = 0;
-  struct game_state gs = { .score = 0, .items = NULL };
+  struct game_state gs = { .score = 0, .items = NULL, .speed = 100000 };
   struct snek *snek = snek_init();
 
   enter_raw_mode();
@@ -525,13 +549,13 @@ int main(void)
     else if (c == 'd')
       snek->dir = EAST;
     
-    update(snek);
+    update(snek, &gs);
     render(snek, &gs);
 
     if (!in_bounds(snek))
       break;
 
-    usleep(100000);
+    usleep(gs.speed);
   }
 
   free(gs.items);
