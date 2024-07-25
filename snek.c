@@ -21,8 +21,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define VERSION "0.1.0"
-
 #define INIT_SKEN_LEN 8
 
 #define EMPTY 0
@@ -48,12 +46,6 @@
 #define WHITE 15
 
 #define ACCELERATION 500
-
-// prototypes
-void clear_screen(void);
-void exit_raw_mode(void);
-void hide_cursor(void);
-char get_key(void);
 
 // data structures for storing the snek and game state
 
@@ -84,6 +76,13 @@ struct snek {
   struct pt *tail;
   uint32_t dir;
 };
+
+// prototypes
+void clear_screen(void);
+void exit_raw_mode(void);
+void hide_cursor(void);
+char get_key(void);
+void render(struct snek *snek, struct game_state *gs, struct message *messages, size_t msg_count);
 
 struct snek *snek_init(void)
 {
@@ -152,94 +151,26 @@ struct termios orig_termios;
 
 void title_screen(void)
 {
-  clear_screen();
+  struct message *messages = malloc(4 * sizeof(struct message));
+  messages[0].msg = "~~ SNEK! 0.1.0 ~~";
+  messages[0].row = MIN_WIN_HEIGHT / 3;
+  messages[0].colour = WHITE;
+  messages[1].msg = "Eat snek snacks! Grow!";
+  messages[1].row = (MIN_WIN_HEIGHT / 3) + 2;
+  messages[1].colour = WHITE;
+  messages[2].msg = "Avoid an ouroboros situation!";
+  messages[2].row = (MIN_WIN_HEIGHT / 3) + 3;
+  messages[2].colour = WHITE;
+  messages[3].msg = "press space to begin...";
+  messages[3].row = (MIN_WIN_HEIGHT / 3) + 5;
+  messages[3].colour = WHITE;
+  
+  struct game_state gs = { .score = 0, .items = NULL, .speed = 100000,
+                                .paused = false };
 
-  char *border = malloc(MIN_WIN_WIDTH + 1);
-  memset(border, ' ', MIN_WIN_WIDTH);
-  border[MIN_WIN_WIDTH] = '\0';
-
-  char *blank = malloc(MIN_WIN_WIDTH - 1);
-  memset(blank, ' ', MIN_WIN_WIDTH - 2);
-  blank[MIN_WIN_WIDTH - 2] = '\0';
-
-  write(STDOUT_FILENO, "\x1b[47m", 5);
-  write(STDOUT_FILENO, border, MIN_WIN_WIDTH);
-  write(STDOUT_FILENO, "\x1b[m", 3);
-  write(STDOUT_FILENO, "\r\n", 2);
-
-  for (int r = 1; r < MIN_WIN_HEIGHT - 1 ; r++) {
-    write(STDOUT_FILENO, "\x1b[47m", 5);
-    write(STDOUT_FILENO, " ", 1);
-    write(STDOUT_FILENO, "\x1b[m", 3);
-
-    if (r == MIN_WIN_HEIGHT / 3) {
-      char title[80];
-      sprintf(title, "~~ SNEK! %s ~~", VERSION);
-      size_t len = strlen(title);
-      size_t padding = (MIN_WIN_WIDTH - 2 - len) / 2;
-      for (size_t j = 0; j < padding; j++)
-         write(STDOUT_FILENO, " ", 1);
-    
-      write(STDOUT_FILENO, title, len);
-
-      for (size_t j = padding + len + 1; j < MIN_WIN_WIDTH - 1; j++)
-        write(STDOUT_FILENO, " ", 1);
-    }
-    else if (r == MIN_WIN_HEIGHT / 3 + 5) {
-      char *msg = "press space to begin...";
-      size_t len = strlen(msg);
-      size_t padding = (MIN_WIN_WIDTH - 2 - len) / 2;
-      for (size_t j = 0; j < padding; j++)
-         write(STDOUT_FILENO, " ", 1);
-
-      write(STDOUT_FILENO, msg, len);
-
-      for (size_t j = padding + len + 1; j < MIN_WIN_WIDTH - 1; j++)
-        write(STDOUT_FILENO, " ", 1);
-    }
-    else if (r == MIN_WIN_HEIGHT / 3 + 2) {
-      char *msg = "Eat snek snacks! Grow!";
-      size_t len = strlen(msg);
-      size_t padding = (MIN_WIN_WIDTH - 2 - len) / 2;
-      for (size_t j = 0; j < padding; j++)
-         write(STDOUT_FILENO, " ", 1);
-
-      write(STDOUT_FILENO, msg, len);
-
-      for (size_t j = padding + len + 1; j < MIN_WIN_WIDTH - 1; j++)
-        write(STDOUT_FILENO, " ", 1);
-    }
-    else if (r == MIN_WIN_HEIGHT / 3 + 3) {
-      char *msg = "Avoid an ouroboros situation!";
-      size_t len = strlen(msg);
-      size_t padding = (MIN_WIN_WIDTH - 2 - len) / 2;
-      for (size_t j = 0; j < padding; j++)
-         write(STDOUT_FILENO, " ", 1);
-
-      write(STDOUT_FILENO, msg, len);
-
-      for (size_t j = padding + len + 1; j < MIN_WIN_WIDTH - 1; j++)
-        write(STDOUT_FILENO, " ", 1);
-    }
-    else {
-      write(STDOUT_FILENO, blank, MIN_WIN_WIDTH - 2);
-    }
-
-    write(STDOUT_FILENO, "\x1b[47m", 5);
-    write(STDOUT_FILENO, " ", 1);
-    write(STDOUT_FILENO, "\x1b[m", 3);
-
-    write(STDOUT_FILENO, "\r\n", 2);
-  }
-
-  write(STDOUT_FILENO, "\x1b[47m", 5);
-  write(STDOUT_FILENO, border, MIN_WIN_WIDTH);
-  write(STDOUT_FILENO, "\x1b[m", 3);
-  write(STDOUT_FILENO, "\r\n", 2);
-
-  free(border);
-  free(blank);
-
+  render(NULL, &gs, messages, 4);
+  free(messages);
+  
   while (true) {
     char c = get_key();
     if (c == 'q') {
@@ -396,21 +327,25 @@ void render(struct snek *snek, struct game_state *gs, struct message *messages, 
 {
   // build table of items on screen
   int *table = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
-  for (int j = 0; j < MIN_WIN_HEIGHT * MIN_WIN_WIDTH; j++) {
-    if (gs->items[j] == SNEK_SNACK)
-      table[j] = SNEK_SNACK;
+
+  if (gs->items) {
+    for (int j = 0; j < MIN_WIN_HEIGHT * MIN_WIN_WIDTH; j++) {
+      if (gs->items[j] == SNEK_SNACK)
+        table[j] = SNEK_SNACK;
+    }
   }
 
-  struct pt *p = snek->head;
-  int i = i = p->row * MIN_WIN_WIDTH + p->col;
-  table[i] = SNEK_HEAD;
-  p = p->prev;
-  while (p) {
-    int i = p->row * MIN_WIN_WIDTH + p->col;
-    table[i] = SNEK_BODY;
+  if (snek) {
+    struct pt *p = snek->head;
+    int i = i = p->row * MIN_WIN_WIDTH + p->col;
+    table[i] = SNEK_HEAD;
     p = p->prev;
+    while (p) {
+      int i = p->row * MIN_WIN_WIDTH + p->col;
+      table[i] = SNEK_BODY;
+      p = p->prev;
+    }
   }
-
   clear_screen();
   char buffer[MIN_WIN_HEIGHT * MIN_WIN_WIDTH * 2];
   size_t pos = 0;
