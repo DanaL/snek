@@ -576,61 +576,78 @@ int main(void)
   }
 
   srand(time(NULL));
-
-  uint32_t high_score = 0;
-  struct game_state gs = { .score = 0, .items = NULL, .speed = 100000,
-    .paused = false };
-  struct snek *snek = snek_init();
-
   enter_raw_mode();
   hide_cursor();
+  
+  uint32_t high_score = 0;
+  struct snek *snek = NULL;
 
   title_screen();
 
-  // main game loop
-  free(gs.items);
-  gs.items = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
-  add_snacks(&gs, snek, 20);
+	bool playing = true;
+	do {
+    struct game_state gs = { .score = 0, .items = NULL, .speed = 100000,
+                                .paused = false };
+		free(snek);
+  	snek = snek_init();
+		free(gs.items);
+		gs.items = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
+		add_snacks(&gs, snek, 20);
 
-  bool game_over = false;
-  gs.snacks_refreshed = time(NULL);
-  
-  while (true) {
-    char c = get_key();
+		bool game_over = false;
+		gs.snacks_refreshed = time(NULL);
+		
+		// main game loop	
+		while (true) {
+			char c = get_key();
     
-    if (c == 'q')
-      break;
-    else if (c == 'w') 
-      snek->dir = NORTH;
-    else if (c == 'a')
-      snek->dir = WEST;
-    else if (c == 's')
-      snek->dir = SOUTH;
-    else if (c == 'd')
-      snek->dir = EAST;
-		else if (c == ' ')
-	  	gs.paused = !gs.paused;
-	
-    if (!gs.paused) {
-      game_over = update(snek, &gs);
-      if (!in_bounds(snek))
-				game_over = true;
-
-      if (game_over) {
-				render(snek, &gs, "Oh noes! Game over :(");
+			if (c == 'q')
 				break;
-      }
+			else if (c == 'w') 
+				snek->dir = NORTH;
+			else if (c == 'a')
+				snek->dir = WEST;
+			else if (c == 's')
+				snek->dir = SOUTH;
+			else if (c == 'd')
+				snek->dir = EAST;
+			else if (c == ' ')
+				gs.paused = !gs.paused;
+		
+			if (!gs.paused) {
+				game_over = update(snek, &gs);
+				if (!in_bounds(snek))
+					game_over = true;
 
-			if (time(NULL) - gs.snacks_refreshed >= 10) {
-  			add_snacks(&gs, snek, 5);
-				gs.snacks_refreshed = time(NULL);
+				if (game_over) {
+					render(snek, &gs, "Oh noes! Game over :(");
+					break;
+				}
+
+				if (time(NULL) - gs.snacks_refreshed >= 10) {
+					add_snacks(&gs, snek, 5);
+					gs.snacks_refreshed = time(NULL);
+				}
+
+				render(snek, &gs, NULL);
 			}
 
-      render(snek, &gs, NULL);
-    }
+  		usleep(gs.speed);
+  	}
 
-  	usleep(gs.speed);
-  }
-
-  free(gs.items);
+		while (true) {
+			char c = get_key();
+			if (c == 'q') {
+				playing = false;
+        free(gs.items);
+        free(snek);
+        clear_screen();
+				break;
+			}
+			else if (c == ' ') {
+				break;
+			}	
+		}
+	}
+	while (playing);
 }
