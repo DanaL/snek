@@ -556,7 +556,7 @@ bool in_bounds(struct snek *snek)
   if (snek->head->row == 0 || snek->head->col == 0)
     return false;
 
-  if (snek->head->row == MIN_WIN_HEIGHT || snek->head->col == MIN_WIN_WIDTH)
+  if (snek->head->row >= MIN_WIN_HEIGHT - 1 || snek->head->col >= MIN_WIN_WIDTH - 1)
     return false;
 
   return true;
