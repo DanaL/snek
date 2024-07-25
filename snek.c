@@ -28,6 +28,7 @@
 #define SNEK_BODY 2
 #define MUSHROOM 3
 #define SNEK_SNACK 4
+#define WALL 5
 
 #define NORTH 0
 #define SOUTH 1
@@ -69,6 +70,7 @@ struct game_state {
   time_t mushrooms_refreshed;
   bool poisoned;
   time_t poisoned_time;
+  uint32_t last_wall_attempt;
 };
 
 struct pt {
@@ -180,7 +182,7 @@ struct termios orig_termios;
 void title_screen(void)
 {
   struct message *messages = malloc(4 * sizeof(struct message));
-  messages[0].msg = "~~ SNEK! 0.1.0 ~~";
+  messages[0].msg = "~~ SNEK! 1.0.0 ~~";
   messages[0].row = MIN_WIN_HEIGHT / 3;
   messages[0].colour = WHITE;
   messages[1].msg = "Eat snek snacks! Grow!";
@@ -462,6 +464,11 @@ void render(struct snek *snek, struct game_state *gs, struct message *messages, 
           fg_colour(buffer, &pos, BLUE);
           buffer[pos++] = 'o';
           break;
+        case WALL:
+          invert(buffer, &pos);
+          buffer[pos++] = ' ';
+          uninvert(buffer, &pos);
+          break;
         case MUSHROOM:
           fg_colour(buffer, &pos, PURPLE);
           memcpy(&buffer[pos], "\xe2\x99\xa3", 3);
@@ -488,6 +495,53 @@ void render(struct snek *snek, struct game_state *gs, struct message *messages, 
   write(STDOUT_FILENO, buffer, pos);
 
   free(table);
+}
+
+void try_to_add_barrier(struct snek *snek, struct game_state *gs) 
+{
+  size_t walls[3];
+
+  // try up to 3 times to add a barrier
+  for (int j = 0; j < 3; j++) {
+    int row = rand() % (MIN_WIN_HEIGHT - 2) + 1;
+    int col = rand() % (MIN_WIN_WIDTH - 2) + 1;
+    int i = row * MIN_WIN_WIDTH + col;
+
+    int shape = rand() % 2;
+    switch (shape) {
+      case 0:
+        walls[0] = i - 1;
+        walls[1] = i;
+        walls[2] = i + 1;
+        break;
+      case 1:
+        walls[0] = i - MIN_WIN_WIDTH;
+        walls[1] = i;
+        walls[2] = i + MIN_WIN_WIDTH;
+        break;
+    }
+    
+    bool valid = true;
+    struct pt *seg = snek->head;
+    while (seg) {
+      int i = seg->row * MIN_WIN_WIDTH + seg->col;
+      for (int k = 0; k < 3; k++) {
+        if (walls[k] == i) {
+          valid = false;
+          goto draw_wall;
+        }
+      }
+      seg = seg->prev;
+    }
+draw_wall:
+    if (valid) {
+      for (int k = 0; k < 3; k++) {
+        gs->items[walls[k]] = WALL;
+      }
+
+      return;
+    }
+  }
 }
 
 bool update(struct snek *snek, struct game_state *gs)
@@ -550,6 +604,9 @@ bool update(struct snek *snek, struct game_state *gs)
     gs->poisoned = true;
     gs->poisoned_time = time(NULL);
   }
+  else if (gs->items[i] == WALL) {
+    return true;
+  }
 
   // check if the snek has hit any part of its body
   struct pt *seg = snek->head->prev;
@@ -560,6 +617,13 @@ bool update(struct snek *snek, struct game_state *gs)
 
     seg = seg->prev;
   }
+
+  // should we try to add a barrier?
+  if (gs->score >= 500 && gs->score - gs->last_wall_attempt >= 100) {
+    try_to_add_barrier(snek, gs);
+    gs->last_wall_attempt = gs->score;
+  }
+
   return false;
 }
 
@@ -596,7 +660,8 @@ int main(void)
 	bool playing = true;
 	do {
     struct game_state gs = { .score = 0, .items = NULL, .speed = 100000,
-                                .paused = false, .poisoned = false };
+                                .paused = false, .poisoned = false,
+                                .last_wall_attempt = 0 };
 		free(snek);
   	snek = snek_init();
 		free(gs.items);
@@ -606,6 +671,8 @@ int main(void)
 		bool game_over = false;
 		gs.snacks_refreshed = time(NULL);
 		gs.mushrooms_refreshed = time(NULL);
+
+    try_to_add_barrier(snek, &gs);
 
 		// main game loop	
 		while (true) {
