@@ -89,7 +89,7 @@ void clear_screen(void);
 void exit_raw_mode(void);
 void hide_cursor(void);
 char get_key(void);
-void render(struct snek *snek, struct game_state *gs, struct message *messages, size_t msg_count);
+void render(struct snek *, struct game_state *, struct message *, size_t, uint32_t);
 
 struct snek *snek_init(void)
 {
@@ -195,7 +195,7 @@ void title_screen(void)
   
   struct game_state gs = { .score = 0, .items = NULL };
 
-  render(NULL, &gs, messages, 4);
+  render(NULL, &gs, messages, 4, 0);
   free(messages);
   
   while (true) {
@@ -350,14 +350,12 @@ char snek_head(uint32_t dir)
   }
 }
 
-void render(struct snek *snek, struct game_state *gs, struct message *messages, size_t msg_count)
+void render(struct snek *snek, struct game_state *gs, struct message *messages, size_t msg_count, uint32_t high_score)
 {
   int snek_colour = GREEN;
 
   // build table of items on screen
   int *table = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
-
-
   if (gs->items) {
     for (int j = 0; j < MIN_WIN_HEIGHT * MIN_WIN_WIDTH; j++) {
       if (gs->items[j] != EMPTY)
@@ -393,7 +391,7 @@ void render(struct snek *snek, struct game_state *gs, struct message *messages, 
 
   uninvert(buffer, &pos);
 
-  char score[20];
+  char score[25];
   sprintf(score, " Score: %d ", gs->score);
   size_t score_len = strlen(score);
   memcpy(&buffer[pos], score, score_len);
@@ -401,8 +399,22 @@ void render(struct snek *snek, struct game_state *gs, struct message *messages, 
 
   invert(buffer, &pos);
 
-  memset(&buffer[pos], ' ', MIN_WIN_WIDTH - score_len - 5);
-  pos +=  MIN_WIN_WIDTH - score_len - 5;
+  sprintf(score, " High score: %d ", high_score);
+  size_t high_score_len = strlen(score);
+
+  int padding = (MIN_WIN_WIDTH - high_score_len - 5) - (score_len + 5);
+  memset(&buffer[pos], ' ', padding);
+  pos += padding;
+
+  uninvert(buffer, &pos);
+
+  memcpy(&buffer[pos], score, high_score_len);
+  pos += high_score_len;
+
+  invert(buffer, &pos);
+
+  memset(&buffer[pos], ' ', 5);
+  pos += 5;
 
   uninvert(buffer, &pos);
 
@@ -616,14 +628,33 @@ int main(void)
 					game_over = true;
 
 				if (game_over) {
-          struct message *msg = malloc(2 * sizeof(struct message));
-          msg[0].msg = "Oh noes! Game over :(";
-          msg[0].colour = PURPLE;
-          msg[0].row = MIN_WIN_HEIGHT / 3;
-          msg[1].msg = "Press space to play again or q to quit";
-          msg[1].colour = WHITE;
-          msg[1].row = (MIN_WIN_HEIGHT / 3) + 2;
-          render(snek, &gs, msg, 2);
+          bool new_high_score = false;
+          if (gs.score > high_score) {
+            new_high_score = true;
+            high_score = gs.score;
+          }
+ 
+          size_t num_msgs = new_high_score ? 3 : 2;
+          struct message *msg = malloc(num_msgs * sizeof(struct message));
+          int i = 0, row = MIN_WIN_HEIGHT / 3;
+          msg[i].msg = "Oh noes! Game over :(";
+          msg[i].colour = PURPLE;
+          msg[i].row = row;
+
+          if (new_high_score) {
+            ++i;
+            row += 2;
+            msg[i].msg = "A new high score!!";
+            msg[i].colour = BLUE;
+            msg[i].row = row;
+          }
+
+          ++i;
+          row += 2;
+          msg[i].msg = "Press space to play again or q to quit";
+          msg[i].colour = WHITE;
+          msg[i].row = row;
+          render(snek, &gs, msg, num_msgs, high_score);
           free(msg);
 					break;
 				}
@@ -638,7 +669,7 @@ int main(void)
           gs.mushrooms_refreshed = time(NULL);
         }
 
-				render(snek, &gs, NULL, 0);
+				render(snek, &gs, NULL, 0, high_score);
 			}
 
   		usleep(gs.speed);
