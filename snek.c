@@ -65,6 +65,7 @@ struct game_state {
   uint32_t acceleration;
   int *items;
   useconds_t speed;
+  useconds_t saved_speed;
   bool paused;
   time_t snacks_refreshed;
   time_t mushrooms_refreshed;
@@ -564,7 +565,8 @@ bool update(struct snek *snek, struct game_state *gs)
 
   if (gs->poisoned && time(NULL) - gs->poisoned_time >= POISON_DURATION) {
     gs->poisoned = false;
-    gs->speed *= 2;
+    gs->speed = gs->saved_speed;
+    gs->saved_speed = 0;
   }
 
   struct pt *n = malloc(sizeof(struct pt));
@@ -599,6 +601,9 @@ bool update(struct snek *snek, struct game_state *gs)
   }
   else if (gs->items[i] == MUSHROOM) {
     gs->score += 75;
+    if (gs->saved_speed == 0) {
+      gs->saved_speed = gs->speed;
+    }
     gs->speed /= 2;
     gs->items[i] = EMPTY;
     gs->poisoned = true;
@@ -661,7 +666,7 @@ int main(void)
 	do {
     struct game_state gs = { .score = 0, .items = NULL, .speed = 100000,
                                 .paused = false, .poisoned = false,
-                                .last_wall_attempt = 0 };
+                                .last_wall_attempt = 0, .saved_speed = 0 };
 		free(snek);
   	snek = snek_init();
 		free(gs.items);
