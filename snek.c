@@ -47,6 +47,10 @@
 
 #define ACCELERATION 500
 
+#define POISON_DURATION 5
+
+char mushroom[] = { 0xe2, 0x99, 0xa3 };
+
 // data structures for storing the snek and game state
 
 struct message {
@@ -62,6 +66,9 @@ struct game_state {
   useconds_t speed;
   bool paused;
   time_t snacks_refreshed;
+  time_t mushrooms_refreshed;
+  bool poisoned;
+  time_t poisoned_time;
 };
 
 struct pt {
@@ -115,16 +122,37 @@ struct snek *snek_init(void)
   return snek;
 }
 
-void add_snacks(struct game_state *gs, struct snek *snek, int count)
+void add_item(struct game_state *gs, struct snek *snek, int item)
 {
-  while (count > 0) {
+  // we'll only try so many times to find a place for the time
+  for (int j = 0; j < 100; j++) {
     int row = rand() % (MIN_WIN_HEIGHT - 2) + 1;
     int col = rand() % (MIN_WIN_WIDTH - 2) + 1;
 
     if (row == snek->head->row && col == snek->head->col)
       continue;
 
-    gs->items[row * MIN_WIN_WIDTH + col] = SNEK_SNACK;
+    int i = row * MIN_WIN_WIDTH + col;
+    if (gs->items[i] != EMPTY)
+      continue;
+
+    gs->items[i] = item;
+    return;
+  }
+}
+
+void add_snacks(struct game_state *gs, struct snek *snek, int count)
+{
+  while (count > 0) {
+    add_item(gs, snek, SNEK_SNACK);
+    --count;
+  }
+}
+
+void add_mushrooms(struct game_state *gs, struct snek *snek, int count)
+{
+  while (count > 0) {
+    add_item(gs, snek, MUSHROOM);
     --count;
   }
 }
@@ -165,8 +193,7 @@ void title_screen(void)
   messages[3].row = (MIN_WIN_HEIGHT / 3) + 5;
   messages[3].colour = WHITE;
   
-  struct game_state gs = { .score = 0, .items = NULL, .speed = 100000,
-                                .paused = false };
+  struct game_state gs = { .score = 0, .items = NULL };
 
   render(NULL, &gs, messages, 4);
   free(messages);
@@ -325,16 +352,23 @@ char snek_head(uint32_t dir)
 
 void render(struct snek *snek, struct game_state *gs, struct message *messages, size_t msg_count)
 {
+  int snek_colour = GREEN;
+
   // build table of items on screen
   int *table = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
 
+
   if (gs->items) {
     for (int j = 0; j < MIN_WIN_HEIGHT * MIN_WIN_WIDTH; j++) {
-      if (gs->items[j] == SNEK_SNACK)
-        table[j] = SNEK_SNACK;
+      if (gs->items[j] != EMPTY)
+        table[j] = gs->items[j];
     }
+
+    if (gs->poisoned)
+      snek_colour = PURPLE;
   }
 
+  
   if (snek) {
     struct pt *p = snek->head;
     int i = i = p->row * MIN_WIN_WIDTH + p->col;
@@ -346,6 +380,7 @@ void render(struct snek *snek, struct game_state *gs, struct message *messages, 
       p = p->prev;
     }
   }
+
   clear_screen();
   char buffer[MIN_WIN_HEIGHT * MIN_WIN_WIDTH * 2];
   size_t pos = 0;
@@ -404,16 +439,21 @@ void render(struct snek *snek, struct game_state *gs, struct message *messages, 
           buffer[pos++] = ' ';
           break;
         case SNEK_BODY:
-          fg_colour(buffer, &pos, GREEN);
+          fg_colour(buffer, &pos, snek_colour);
           buffer[pos++] = '#';
           break;
         case SNEK_HEAD:
-          fg_colour(buffer, &pos, GREEN);
+          fg_colour(buffer, &pos, snek_colour);
           buffer[pos++] = snek_head(snek->dir);
           break;
         case SNEK_SNACK:
           fg_colour(buffer, &pos, BLUE);
           buffer[pos++] = 'o';
+          break;
+        case MUSHROOM:
+          fg_colour(buffer, &pos, PURPLE);
+          memcpy(&buffer[pos], "\xe2\x99\xa3", 3);
+          pos += 3;
           break;
       }
     }
@@ -456,6 +496,11 @@ bool update(struct snek *snek, struct game_state *gs)
       break;
   }
 
+  if (gs->poisoned && time(NULL) - gs->poisoned_time >= POISON_DURATION) {
+    gs->poisoned = false;
+    gs->speed *= 2;
+  }
+
   struct pt *n = malloc(sizeof(struct pt));
   n->row = snek->head->row + dr;
   n->col = snek->head->col + dc;
@@ -484,7 +529,14 @@ bool update(struct snek *snek, struct game_state *gs)
       new_seg->next = snek->tail;
       snek->tail->prev = new_seg;
       snek->tail = new_seg;
-    }
+    }    
+  }
+  else if (gs->items[i] == MUSHROOM) {
+    gs->score += 75;
+    gs->speed /= 2;
+    gs->items[i] = EMPTY;
+    gs->poisoned = true;
+    gs->poisoned_time = time(NULL);
   }
 
   // check if the snek has hit any part of its body
@@ -532,7 +584,7 @@ int main(void)
 	bool playing = true;
 	do {
     struct game_state gs = { .score = 0, .items = NULL, .speed = 100000,
-                                .paused = false };
+                                .paused = false, .poisoned = false };
 		free(snek);
   	snek = snek_init();
 		free(gs.items);
@@ -541,7 +593,8 @@ int main(void)
 
 		bool game_over = false;
 		gs.snacks_refreshed = time(NULL);
-		
+		gs.mushrooms_refreshed = time(NULL);
+
 		// main game loop	
 		while (true) {
 			char c = get_key();    
@@ -558,6 +611,7 @@ int main(void)
 		
 			if (!gs.paused) {
 				game_over = update(snek, &gs);
+
 				if (!in_bounds(snek))
 					game_over = true;
 
@@ -578,6 +632,11 @@ int main(void)
 					add_snacks(&gs, snek, 5);
 					gs.snacks_refreshed = time(NULL);
 				}
+
+        if(gs.score > 200 && time(NULL) - gs.mushrooms_refreshed >= 15) {
+          add_mushrooms(&gs, snek, 2);
+          gs.mushrooms_refreshed = time(NULL);
+        }
 
 				render(snek, &gs, NULL, 0);
 			}
