@@ -42,11 +42,10 @@
 #define MIN_WIN_HEIGHT 30
 #define MIN_WIN_WIDTH 100
 
-#define CTRL_KEY(k) ((k) & 0x1f)
-
 #define GREEN 28
 #define PURPLE 99
 #define BLUE 33
+#define WHITE 15
 
 #define ACCELERATION 500
 
@@ -57,6 +56,12 @@ void hide_cursor(void);
 char get_key(void);
 
 // data structures for storing the snek and game state
+
+struct message {
+  uint32_t row;
+  char *msg;
+  int colour;
+};
 
 struct game_state {
   uint32_t score;
@@ -318,7 +323,7 @@ bool valid_window_size()
       return false;    
   }
 
-  int  cols = ws.ws_col;
+  int cols = ws.ws_col;
   int rows = ws.ws_row;
   
   if (cols < MIN_WIN_WIDTH || rows < MIN_WIN_HEIGHT)
@@ -332,12 +337,10 @@ bool valid_window_size()
 char get_key(void)
 {
   char c = '\0';
-  if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) die("read");
+  if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) 
+    die("read");
   
-  if (c == CTRL_KEY('q')) {
-    exit(0);
-  }
-  else if (c == '\x1b') {
+  if (c == '\x1b') {
     char seq[3];
     if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
     if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
@@ -389,13 +392,9 @@ char snek_head(uint32_t dir)
   }
 }
 
-void render(struct snek *snek, struct game_state *gs, char *msg)
+void render(struct snek *snek, struct game_state *gs, struct message *messages, size_t msg_count)
 {
-  // col to roughly centre msg 
-  size_t msg_len = msg != NULL ? strlen(msg) : 0;
-  int msg_col = msg != NULL ? (MIN_WIN_WIDTH - 2 - msg_len) / 2 : 0;
-
-  // build table of things on screen
+  // build table of items on screen
   int *table = calloc(sizeof(int), MIN_WIN_HEIGHT * MIN_WIN_WIDTH);
   for (int j = 0; j < MIN_WIN_HEIGHT * MIN_WIN_WIDTH; j++) {
     if (gs->items[j] == SNEK_SNACK)
@@ -445,14 +444,25 @@ void render(struct snek *snek, struct game_state *gs, char *msg)
     buffer[pos++] = ' ';
     uninvert(buffer, &pos);
     
-    for (size_t c = 1; c < MIN_WIN_WIDTH - 1; c++) {
+    // Wish C had built-in hash tables but I'm not going to bother
+    // implementing one just for this...
+    struct message *message = NULL;
+    size_t msg_col = 0, msg_len = 0;
+    for (size_t j = 0; j < msg_count; j++) {
+      if (messages[j].row == r) {
+        message = &messages[j];
+        msg_len = strlen(message->msg);
+        msg_col = (MIN_WIN_WIDTH - 2 - msg_len) / 2;
+      }
+    }
 
-      if (msg && r == MIN_WIN_HEIGHT / 3 && c >= msg_col && c < msg_col + msg_len) {
-        fg_colour(buffer, &pos, PURPLE);
-        buffer[pos++] = msg[c - msg_col];
+    for (size_t c = 1; c < MIN_WIN_WIDTH - 1; c++) {
+      if (message && c >= msg_col && c < msg_col + msg_len) {
+        fg_colour(buffer, &pos, message->colour);
+        buffer[pos++] = message->msg[c - msg_col];
         continue;
       }
-
+      
       int i = r * MIN_WIN_WIDTH + c;
       switch (table[i]) {
         case EMPTY:
@@ -599,11 +609,8 @@ int main(void)
 		
 		// main game loop	
 		while (true) {
-			char c = get_key();
-    
-			if (c == 'q')
-				break;
-			else if (c == 'w') 
+			char c = get_key();    
+			if (c == 'w') 
 				snek->dir = NORTH;
 			else if (c == 'a')
 				snek->dir = WEST;
@@ -620,7 +627,15 @@ int main(void)
 					game_over = true;
 
 				if (game_over) {
-					render(snek, &gs, "Oh noes! Game over :(");
+          struct message *msg = malloc(2 * sizeof(struct message));
+          msg[0].msg = "Oh noes! Game over :(";
+          msg[0].colour = PURPLE;
+          msg[0].row = MIN_WIN_HEIGHT / 3;
+          msg[1].msg = "Press space to play again or q to quit";
+          msg[1].colour = WHITE;
+          msg[1].row = (MIN_WIN_HEIGHT / 3) + 2;
+          render(snek, &gs, msg, 2);
+          free(msg);
 					break;
 				}
 
@@ -629,7 +644,7 @@ int main(void)
 					gs.snacks_refreshed = time(NULL);
 				}
 
-				render(snek, &gs, NULL);
+				render(snek, &gs, NULL, 0);
 			}
 
   		usleep(gs.speed);
